@@ -90,16 +90,20 @@ private:
 
   return_type set_control_mode(const ControlMode & mode, const bool force_set = false);
 
+  return_type set_control_modes(const std::vector<ControlMode> & modes);
+
   return_type reset_command();
 
   CallbackReturn set_joint_positions();
   CallbackReturn set_joint_velocities();
+  CallbackReturn set_joint_commands();
   CallbackReturn set_joint_params();
 
   DynamixelWorkbench dynamixel_workbench_;
   std::map<const char * const, const ControlItem *> control_items_;
   std::vector<Joint> joints_;
   std::vector<uint8_t> joint_ids_;
+  std::vector<ControlMode> control_modes_;
   bool torque_enabled_{false};
   ControlMode control_mode_{ControlMode::Position};
   bool mode_changed_{false};
