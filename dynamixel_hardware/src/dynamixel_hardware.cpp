@@ -47,6 +47,7 @@ constexpr const char * const kExtraJointParameters[] = {
   "Velocity_P_Gain",
   "Velocity_I_Gain",
 };
+constexpr const char* HW_IF_EXTENDED_POSITION = "extended_position";
 
 CallbackReturn DynamixelHardware::on_init(const hardware_interface::HardwareInfo & info)
 {
@@ -69,9 +70,11 @@ CallbackReturn DynamixelHardware::on_init(const hardware_interface::HardwareInfo
     joints_[i].command.position = std::numeric_limits<double>::quiet_NaN();
     joints_[i].command.velocity = std::numeric_limits<double>::quiet_NaN();
     joints_[i].command.effort = std::numeric_limits<double>::quiet_NaN();
+    joints_[i].command.extended_position = std::numeric_limits<double>::quiet_NaN();
     joints_[i].prev_command.position = joints_[i].command.position;
     joints_[i].prev_command.velocity = joints_[i].command.velocity;
     joints_[i].prev_command.effort = joints_[i].command.effort;
+    joints_[i].prev_command.extended_position = joints_[i].command.extended_position;
     RCLCPP_INFO(rclcpp::get_logger(kDynamixelHardware), "joint_id %d: %d", i, joint_ids_[i]);
     // Assuming one control mode per joint
     std::string control_mode_str = info_.joints[i].command_interfaces[0].name;
@@ -81,6 +84,9 @@ CallbackReturn DynamixelHardware::on_init(const hardware_interface::HardwareInfo
     }
     else if (control_mode_str == "velocity") {
       control_modes_[i] = ControlMode::Velocity;
+    }
+    else if (control_mode_str == "extended_position") {
+      control_modes_[i] = ControlMode::ExtendedPosition;
     }
     else {
       RCLCPP_ERROR(rclcpp::get_logger(kDynamixelHardware), "Unsupported control mode: %s", control_mode_str.c_str());
@@ -227,6 +233,9 @@ std::vector<hardware_interface::CommandInterface> DynamixelHardware::export_comm
     command_interfaces.emplace_back(
       hardware_interface::CommandInterface(
         info_.joints[i].name, hardware_interface::HW_IF_VELOCITY, &joints_[i].command.velocity));
+    command_interfaces.emplace_back(
+      hardware_interface::CommandInterface(
+        info_.joints[i].name, HW_IF_EXTENDED_POSITION, &joints_[i].command.extended_position));
   }
 
   return command_interfaces;
@@ -497,6 +506,15 @@ return_type DynamixelHardware::set_control_modes(const std::vector<ControlMode> 
         return return_type::ERROR;
       }
       RCLCPP_INFO(rclcpp::get_logger(kDynamixelHardware), "set position mode for joint %d", i);
+    } else if (modes[i] == ControlMode::ExtendedPosition) {
+      if (!dynamixel_workbench_.setExtendedPositionControlMode(joint_ids_[i], &log)) {
+        RCLCPP_FATAL(rclcpp::get_logger(kDynamixelHardware), "%s", log);
+        return return_type::ERROR;
+      }
+      RCLCPP_INFO(rclcpp::get_logger(kDynamixelHardware), "set extended position mode for joint %d", i);
+    } else {
+      RCLCPP_FATAL(rclcpp::get_logger(kDynamixelHardware), "Unsupported control mode");
+      return return_type::ERROR;
     }
   }
 
@@ -515,6 +533,7 @@ return_type DynamixelHardware::reset_command()
     joints_[i].prev_command.position = joints_[i].command.position;
     joints_[i].prev_command.velocity = joints_[i].command.velocity;
     joints_[i].prev_command.effort = joints_[i].command.effort;
+    joints_[i].prev_command.extended_position = joints_[i].command.extended_position;
   }
 
   return return_type::OK;
@@ -545,8 +564,10 @@ CallbackReturn DynamixelHardware::set_joint_commands()
   const char * log = nullptr;
   std::vector<int32_t> vel_cmds;
   std::vector<int32_t> pos_cmds;
+  std::vector<int32_t> ext_pos_cmds;
   std::vector<uint8_t> vel_ids;
   std::vector<uint8_t> pos_ids;
+  std::vector<uint8_t> ext_pos_ids;
   if (joint_ids_.size() > control_modes_.size()) {
     RCLCPP_FATAL(rclcpp::get_logger(kDynamixelHardware), "%ld control modes for %ld joints",
       control_modes_.size(), joint_ids_.size());
@@ -562,9 +583,14 @@ CallbackReturn DynamixelHardware::set_joint_commands()
       pos_ids.push_back(joint_ids_[i]);
       pos_cmds.push_back(dynamixel_workbench_.convertRadian2Value(
         joint_ids_[i], static_cast<float>(joints_[i].command.position)));
+    } else if (control_modes_[i] == ControlMode::ExtendedPosition) {
+      ext_pos_ids.push_back(joint_ids_[i]);
+      ext_pos_cmds.push_back(dynamixel_workbench_.convertRadian2Value(
+        joint_ids_[i], static_cast<float>(joints_[i].command.extended_position)));
     }
     joints_[i].prev_command.position = joints_[i].command.position;
     joints_[i].prev_command.velocity = joints_[i].command.velocity;
+    joints_[i].prev_command.extended_position = joints_[i].command.extended_position;
   }
 
   if (!vel_ids.empty()) {
@@ -578,6 +604,14 @@ CallbackReturn DynamixelHardware::set_joint_commands()
   if (!pos_ids.empty()) {
     if (!dynamixel_workbench_.syncWrite(
         kGoalPositionIndex, pos_ids.data(), pos_ids.size(), pos_cmds.data(), 1, &log))
+    {
+      RCLCPP_ERROR(rclcpp::get_logger(kDynamixelHardware), "%s", log);
+    }
+  }
+
+  if (!ext_pos_ids.empty()) {
+    if (!dynamixel_workbench_.syncWrite(
+        kGoalPositionIndex, ext_pos_ids.data(), ext_pos_ids.size(), ext_pos_cmds.data(), 1, &log))
     {
       RCLCPP_ERROR(rclcpp::get_logger(kDynamixelHardware), "%s", log);
     }
