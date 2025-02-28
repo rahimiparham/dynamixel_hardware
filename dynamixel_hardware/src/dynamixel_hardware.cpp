@@ -47,7 +47,6 @@ constexpr const char * const kExtraJointParameters[] = {
   "Velocity_P_Gain",
   "Velocity_I_Gain",
 };
-constexpr const char* HW_IF_EXTENDED_POSITION = "extended_position";
 
 CallbackReturn DynamixelHardware::on_init(const hardware_interface::HardwareInfo & info)
 {
@@ -78,6 +77,14 @@ CallbackReturn DynamixelHardware::on_init(const hardware_interface::HardwareInfo
     RCLCPP_INFO(rclcpp::get_logger(kDynamixelHardware), "joint_id %d: %d", i, joint_ids_[i]);
     // Assuming one control mode per joint
     std::string control_mode_str = info_.joints[i].command_interfaces[0].name;
+    bool is_extended_position = false;
+    auto it = info_.joints[i].parameters.find("extended_position");
+    if (it != info_.joints[i].parameters.end()) {
+      is_extended_position = (it->second == "true" || it->second == "1");
+    }
+    if (is_extended_position) {
+      control_mode_str = "extended_position";
+    }
     RCLCPP_INFO(rclcpp::get_logger(kDynamixelHardware), "control_mode %d: %s", i, control_mode_str.c_str());
     if (control_mode_str == "position") {
       control_modes_[i] = ControlMode::Position;
@@ -233,9 +240,6 @@ std::vector<hardware_interface::CommandInterface> DynamixelHardware::export_comm
     command_interfaces.emplace_back(
       hardware_interface::CommandInterface(
         info_.joints[i].name, hardware_interface::HW_IF_VELOCITY, &joints_[i].command.velocity));
-    command_interfaces.emplace_back(
-      hardware_interface::CommandInterface(
-        info_.joints[i].name, HW_IF_EXTENDED_POSITION, &joints_[i].command.extended_position));
   }
 
   return command_interfaces;
@@ -586,11 +590,11 @@ CallbackReturn DynamixelHardware::set_joint_commands()
     } else if (control_modes_[i] == ControlMode::ExtendedPosition) {
       ext_pos_ids.push_back(joint_ids_[i]);
       ext_pos_cmds.push_back(dynamixel_workbench_.convertRadian2Value(
-        joint_ids_[i], static_cast<float>(joints_[i].command.extended_position)));
+        joint_ids_[i], static_cast<float>(joints_[i].command.position)));
     }
     joints_[i].prev_command.position = joints_[i].command.position;
     joints_[i].prev_command.velocity = joints_[i].command.velocity;
-    joints_[i].prev_command.extended_position = joints_[i].command.extended_position;
+    joints_[i].prev_command.extended_position = joints_[i].command.position;
   }
 
   if (!vel_ids.empty()) {
